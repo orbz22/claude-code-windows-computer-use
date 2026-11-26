@@ -39,6 +39,7 @@ from PIL import Image as PILImage  # noqa: E402
 from PIL import ImageDraw  # noqa: E402
 
 import common as c  # noqa: E402
+import dialog  # noqa: E402
 
 PIXEL_BUDGET = 1_220_000  # ~3456x2234 -> ~1374x888, as on macOS
 MAX_EDGE = 1568
@@ -632,7 +633,7 @@ def _shot_result(note: str = "") -> list:
 @tool()
 async def request_access(apps: list[str], reason: str, clipboard_read: bool = False,
                          clipboard_write: bool = False) -> str:
-    """Ask the user to let you control apps for this session. Call before any other action.
+    """Ask to control apps (the user approves, or the session permission mode decides). Call before any other action.
 
     apps: app names or .exe names, e.g. ["Notepad", "Calculator", "File Explorer", "blender.exe"].
     reason: one short sentence shown to the user.
@@ -642,42 +643,72 @@ async def request_access(apps: list[str], reason: str, clipboard_read: bool = Fa
     for a in apps:
         exe, how = resolve_app(a)
         resolved.setdefault(exe, f"{a}" if how in ("alias", "exe", "running") else f"{a} ({how})")
+    notes: list[str] = []
+
+    def grant(exes, cr, cw):
+        with S.lock:
+            for e in exes:
+                S.approved[e] = tier_of(e)
+            S.clipboard_read |= cr
+            S.clipboard_write |= cw
+
+    def summary(exes):
+        return ", ".join(f"{e} ({TIER_TEXT[tier_of(e)]})" for e in exes)
+
+    # 1. Apps the user set to "Always allow" need no prompt.
+    always = c.load_always()
+    pre = [e for e in resolved if e not in S.approved and e in always["apps"]]
+    pre_cr = clipboard_read and not S.clipboard_read and always["clipboard_read"]
+    pre_cw = clipboard_write and not S.clipboard_write and always["clipboard_write"]
+    if pre or pre_cr or pre_cw:
+        grant(pre, pre_cr, pre_cw)
+        if pre:
+            notes.append("Always allowed: " + summary(pre) + ".")
+
     new = [e for e in resolved if e not in S.approved]
     need_cr = clipboard_read and not S.clipboard_read
     need_cw = clipboard_write and not S.clipboard_write
-    if not new and not need_cr and not need_cw:
-        return "Already approved: " + ", ".join(f"{e} ({TIER_TEXT[S.approved[e]]})" for e in resolved)
+    extras = [x for x, f in (("read clipboard", need_cr), ("write clipboard", need_cw)) if f]
+    if not new and not extras:
+        return " ".join(notes) or ("Already approved: " + summary(resolved) + ".")
 
+    # 2. Follow the Claude Code session's permission mode (reported by mode_hook.py).
+    mode = c.read_mode(S.claude_pid)
+    force_dialog = os.environ.get("WINDOWS_COMPUTER_USE_ALWAYS_ASK", "").lower() in ("1", "true", "yes")
+    if mode == "bypassPermissions" and not force_dialog:
+        grant(new, need_cr, need_cw)
+        c.notify("Computer use auto-approved (bypass permissions): " + ", ".join(new or extras))
+        notes.append("Auto-approved because the session is in bypass permissions mode: "
+                     + summary(new) + (f". Clipboard: {', '.join(extras)}" if extras else "") + ".")
+        return " ".join(notes)
+    if mode == "dontAsk" and not force_dialog:
+        notes.append("Denied without asking because the session is in dontAsk mode and these are not "
+                     "set to Always allow: " + ", ".join(new + extras) + ". Do not retry; tell the user.")
+        return " ".join(notes)
+
+    # 3. Ask the user.
     future = set(S.approved) | set(new)
     term = S.terminal_hwnds()
     others = {exe_of_hwnd(x.hwnd) for x in w.top_level_windows()
               if not x.minimized and x.hwnd not in term and exe_of_hwnd(x.hwnd) not in future}
-
-    lines = ["Claude wants to control these apps for this session:", ""]
-    for e in new:
-        tier = tier_of(e)
-        warn = warning_of(e)
-        lines.append(f"   •  {resolved[e]}  [{e}]  —  {TIER_TEXT[tier]}")
-        if warn:
-            lines.append(f"         ⚠  {warn}")
-    extras = [x for x, f in (("read clipboard", need_cr), ("write clipboard", need_cw)) if f]
-    if extras:
-        lines += ["", "Extra permissions: " + ", ".join(extras)]
-    lines += ["", f"{len(others)} other app(s) will be hidden while Claude works.",
-              "", f"Reason: {reason.strip()[:300]}",
-              "", "Yes = Allow for this session        No = Deny",
-              "Press Esc anytime to stop Claude."]
-
-    allowed = await asyncio.to_thread(w.ask_yes_no, "Claude Code — computer use", "\n".join(lines))
-    if not allowed:
-        return "The user denied access. Do not retry unless the user asks."
-    with S.lock:
-        for e in new:
-            S.approved[e] = tier_of(e)
-        S.clipboard_read |= need_cr
-        S.clipboard_write |= need_cw
-    return "Allowed for this session: " + ", ".join(f"{e} ({TIER_TEXT[S.approved[e]]})" for e in new) + (
-        f". Clipboard: {', '.join(extras)}." if extras else ".")
+    rows = [(f"{resolved[e]}  [{e}]", TIER_TEXT[tier_of(e)], warning_of(e)) for e in new]
+    choice = await asyncio.to_thread(
+        dialog.ask_approval, "Claude Code — computer use",
+        "Claude wants to control these apps:", rows, extras, len(others), reason.strip()[:300])
+    if choice == dialog.DENY:
+        notes.append("The user denied access to " + ", ".join(new + extras)
+                     + ". Do not retry unless the user asks.")
+        return " ".join(notes)
+    grant(new, need_cr, need_cw)
+    if choice == dialog.ALWAYS:
+        always = c.load_always()
+        always["apps"] = list(always["apps"]) + new
+        always["clipboard_read"] |= need_cr
+        always["clipboard_write"] |= need_cw
+        c.save_always(always)
+    label = "Always allowed" if choice == dialog.ALWAYS else "Allowed for this session"
+    notes.append(f"{label}: " + summary(new) + (f". Clipboard: {', '.join(extras)}" if extras else "") + ".")
+    return " ".join(notes)
 
 
 @tool()

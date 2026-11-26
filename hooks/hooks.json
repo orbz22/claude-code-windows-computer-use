@@ -1,5 +1,17 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__.*windows-computer-use.*__request_access",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet --directory \"${CLAUDE_PLUGIN_ROOT}\" mode_hook.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

@@ -98,3 +98,35 @@ def restore_windows(hwnds: list[int]) -> None:
             winapi.unminimize(h)
         except Exception:
             pass
+
+
+# --------------------------------------------------------------------------
+# Permission mode (written by mode_hook.py) and "Always allow" approvals
+# --------------------------------------------------------------------------
+
+ALWAYS_PATH = os.path.join(STATE_DIR, "always_allow.json")
+
+
+def mode_path(claude_pid: int | None) -> str:
+    return os.path.join(STATE_DIR, f"mode-{claude_pid or 'unknown'}.json")
+
+
+def read_mode(claude_pid: int | None, max_age_s: float = 120) -> str:
+    """Permission mode of the Claude Code session, as last reported by the PreToolUse hook."""
+    data = read_json(mode_path(claude_pid)) or {}
+    if time.time() - data.get("at", 0) > max_age_s:
+        return "unknown"
+    return data.get("mode") or "unknown"
+
+
+def load_always() -> dict:
+    data = read_json(ALWAYS_PATH) or {}
+    data.setdefault("apps", [])
+    data.setdefault("clipboard_read", False)
+    data.setdefault("clipboard_write", False)
+    return data
+
+
+def save_always(data: dict) -> None:
+    data["apps"] = sorted(set(data.get("apps", [])))
+    write_json(ALWAYS_PATH, data)
