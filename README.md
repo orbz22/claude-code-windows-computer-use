@@ -11,47 +11,46 @@ as the original.
 ## Requirements
 
 - Windows 10 or 11
-- Python 3.10 or newer
-- Claude Code
+- Claude Code 2.1.275 or later
+- [uv](https://docs.astral.sh/uv/). It installs Python and the dependencies on first run.
+
+  ```powershell
+  winget install astral-sh.uv
+  ```
 
 ## Install
+
+In Claude Code:
+
+```text
+/plugin install windows-computer-use --marketplace orbz22/claude-code-windows-computer-use
+```
+
+Or in two steps:
+
+```text
+/plugin marketplace add orbz22/claude-code-windows-computer-use
+/plugin install windows-computer-use@windows-computer-use
+```
+
+Restart Claude Code, then check that the server is connected in `/mcp`.
+The plugin installs the MCP server and the Stop hook that restores hidden apps when
+Claude's turn ends, so you do not edit `settings.json` yourself.
+The first start takes a few seconds while uv sets up the environment.
+
+To turn it off, run `/plugin` and disable `windows-computer-use`.
+
+### Manual install (without the plugin)
 
 ```powershell
 git clone https://github.com/orbz22/claude-code-windows-computer-use.git
 cd claude-code-windows-computer-use
-py -3.12 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
+claude mcp add --scope user windows-computer-use -- uv run --quiet --directory "$PWD" server.py
 ```
 
-Register the server. Claude Code reserves the name `computer-use`, so use another name:
-
-```powershell
-claude mcp add --scope user windows-computer-use -- "$PWD\.venv\Scripts\python.exe" "$PWD\server.py"
-```
-
-Add a Stop hook to `~/.claude/settings.json`. It restores hidden apps when Claude's turn ends.
-Replace `<repo>` with the full path to your clone, using forward slashes:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"<repo>/.venv/Scripts/python.exe\" \"<repo>/turn_end.py\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Restart Claude Code, then run `/mcp` and check that `windows-computer-use` is connected.
-To turn it off in one project, disable it in `/mcp`.
+Then add the Stop hook from `hooks/hooks.json` to `~/.claude/settings.json`,
+replacing `${CLAUDE_PLUGIN_ROOT}` with the path to your clone.
+The name `computer-use` is reserved by Claude Code, so use another name.
 
 ## Usage
 
@@ -112,6 +111,9 @@ Tools: `request_access`, `list_apps`, `screenshot`, `zoom`, `left_click`, `right
 | `winapi.py` | ctypes wrappers: windows, SendInput, Esc hook, clipboard, dialog |
 | `common.py` | State shared with the Stop hook: lock, notifications, restore |
 | `turn_end.py` | Stop hook: restores hidden apps when the turn ends |
+| `.claude-plugin/` | Plugin and marketplace manifests |
+| `.mcp.json`, `hooks/hooks.json` | MCP server and Stop hook the plugin installs |
+| `pyproject.toml`, `uv.lock` | Dependencies, run with uv |
 
 ## License
 

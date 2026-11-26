@@ -1,4 +1,0 @@
-mcp>=2.3,<3
-mss>=10.2
-pillow>=11
-psutil>=6

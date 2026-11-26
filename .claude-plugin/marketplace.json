@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "windows-computer-use",
+  "description": "Unofficial Windows port of Claude Code computer use.",
+  "owner": {
+    "name": "orbz22",
+    "url": "https://github.com/orbz22"
+  },
+  "plugins": [
+    {
+      "name": "windows-computer-use",
+      "description": "Let Claude see and control your Windows desktop, with the same guardrails as macOS computer use.",
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/orbz22/claude-code-windows-computer-use"
+    }
+  ]
+}
